@@ -1,0 +1,429 @@
+diff --git a/engine/llm_engine.py b/engine/llm_engine.py
+index 87f2835..8fccf9b 100644
+--- a/engine/llm_engine.py
++++ b/engine/llm_engine.py
+@@ -1095,49 +1095,6 @@ class LLMEngine:
+             for scheduler in self.scheduler:
+                 scheduler.free_finished_seq_groups()
+ 
+-        # === 新增：注入 hidden states 到 Sequence / SequenceGroup ===
+-        if outputs and hasattr(outputs[0], 'hidden_states'):
+-            sampler_output = outputs[0]
+-            hidden_states = sampler_output.hidden_states  # [num_tokens, hidden_size]
+-            prefill_hidden_states = getattr(sampler_output, 'prefill_hidden_states', None)
+-
+-            if hidden_states is not None:
+-                token_offset = 0
+-                for i in indices:
+-                    if i in skip or i in finished_before or i in finished_now:
+-                        continue
+-
+-                    seq_group_meta = seq_group_metadata_list[i]
+-                    scheduled_seq_group = scheduler_outputs.scheduled_seq_groups[i]
+-                    seq_group = scheduled_seq_group.seq_group
+-
+-                    if seq_group_meta.is_prompt:
+-                        # Prefill: 整个 prompt 的 hidden states
+-                        if prefill_hidden_states is not None:
+-                            prompt_len = seq_group.get_prompt_len()
+-                            seq_group.hidden_states_prefill = prefill_hidden_states[
+-                                token_offset : token_offset + prompt_len
+-                            ].cpu()
+-                            token_offset += prompt_len
+-                        else:
+-                            # fallback
+-                            prompt_len = seq_group.get_prompt_len()
+-                            seq_group.hidden_states_prefill = hidden_states[
+-                                token_offset : token_offset + prompt_len
+-                            ].cpu()
+-                            token_offset += prompt_len
+-                    else:
+-                        # Decode: 每个 sequence 一个 token
+-                        for seq in seq_group.get_seqs():
+-                            if seq.get_output_len() > 0:
+-                                if token_offset < hidden_states.size(0):
+-                                    seq.hidden_states = hidden_states[token_offset : token_offset + 1].cpu()
+-                                    token_offset += 1
+-                                else:
+-                                    seq.hidden_states = torch.empty(0)
+-
+-        # === 注入结束 ===
+-
+         # For multi-step without streaming, don't create outputs each iteration
+         if not is_last_step and not ctx.multi_step_stream_outputs:
+             # Immediately process request outputs here (if callback is given)
+diff --git a/outputs.py b/outputs.py
+index c8d59c3..c434ca2 100644
+--- a/outputs.py
++++ b/outputs.py
+@@ -44,10 +44,12 @@ class CompletionOutput:
+     token_ids: GenericSequence[int]
+     cumulative_logprob: Optional[float]
+     logprobs: Optional[SampleLogprobs]
++    token_hiddens: Optional[list[torch.Tensor]] = None
+     finish_reason: Optional[str] = None
+     stop_reason: Union[int, str, None] = None
+     lora_request: Optional[LoRARequest] = None
+ 
++
+     def finished(self) -> bool:
+         return self.finish_reason is not None
+ 
+@@ -55,6 +57,7 @@ class CompletionOutput:
+         return (f"CompletionOutput(index={self.index}, "
+                 f"text={self.text!r}, "
+                 f"token_ids={self.token_ids}, "
++                f"token_hiddens (type) ={type(self.token_hiddens)}, "
+                 f"cumulative_logprob={self.cumulative_logprob}, "
+                 f"logprobs={self.logprobs}, "
+                 f"finish_reason={self.finish_reason}, "
+@@ -118,7 +121,6 @@ class RequestOutput:
+         *,
+         multi_modal_placeholders: Optional[MultiModalPlaceholderDict] = None,
+         kv_transfer_params: Optional[dict[str, Any]] = None,
+-        hidden_states_decode=None, hidden_states_prefill=None,
+         # Forward compatibility, code that uses args added in new release can
+         # still run with older versions of vLLM without breaking.
+         **kwargs: Any,
+@@ -139,8 +141,6 @@ class RequestOutput:
+         self.encoder_prompt_token_ids = encoder_prompt_token_ids
+         self.num_cached_tokens = num_cached_tokens
+         self.kv_transfer_params = kv_transfer_params
+-        self.hidden_states_decode = hidden_states_decode
+-        self.hidden_states_prefill = hidden_states_prefill
+ 
+     def add(self, next_output: "RequestOutput", aggregate: bool) -> None:
+         """Merge subsequent RequestOutput into this one"""
+@@ -314,10 +314,6 @@ class RequestOutput:
+         finished_time = time.time() if finished else None
+         seq_group.set_finished_time(finished_time)
+ 
+-        hidden_states_prefill = getattr(seq_group, 'hidden_states_prefill', None)
+-        # Decode hidden states: 每个 seq 的 hidden_states
+-        hidden_states_decode = [seq.hidden_states for seq in top_n_seqs]
+-
+         init_kwargs = {
+             "request_id": seq_group.request_id,
+             "prompt": prompt,
+@@ -330,9 +326,7 @@ class RequestOutput:
+             "encoder_prompt": encoder_prompt,
+             "encoder_prompt_token_ids": encoder_prompt_token_ids,
+             "num_cached_tokens": num_cached_tokens,
+-            "multi_modal_placeholders": seq_group.multi_modal_placeholders,
+-            "hidden_states_decode": hidden_states_decode, 
+-            "hidden_states_prefill": hidden_states_prefill
++            "multi_modal_placeholders": seq_group.multi_modal_placeholders
+         }
+ 
+         if use_cache:
+diff --git a/sequence.py b/sequence.py
+index 701fc97..ffe890e 100644
+--- a/sequence.py
++++ b/sequence.py
+@@ -504,8 +504,6 @@ class Sequence:
+         self.read_offset = 0
+         # Input + output tokens
+         self.tokens: Optional[list[str]] = None
+-        self.hidden_states: torch.Tensor = torch.empty(0, device="cpu")
+-        self.hidden_states_prefill: Optional[torch.Tensor] = None  # 可选
+ 
+     @property
+     def n_blocks(self) -> int:
+diff --git a/v1/core/sched/scheduler.py b/v1/core/sched/scheduler.py
+index 3d7bbe7..c73fa7d 100644
+--- a/v1/core/sched/scheduler.py
++++ b/v1/core/sched/scheduler.py
+@@ -707,6 +707,16 @@ class Scheduler(SchedulerInterface):
+         logprobs = model_runner_output.logprobs
+         prompt_logprobs_dict = model_runner_output.prompt_logprobs_dict
+         num_scheduled_tokens = scheduler_output.num_scheduled_tokens
++        last_hidden = model_runner_output.last_hidden
++
++        if (last_hidden is None and len(sampled_token_ids) != 0) or \
++            (last_hidden is not None and len(last_hidden) != len(sampled_token_ids)):
++            raise RuntimeError(
++                f"[vLLM Modified Error] "
++                f"len(last_hidden)={'None' if last_hidden is None else len(last_hidden)} != "
++                f"len(sampled_token_ids)={len(sampled_token_ids)}"
++            )
++
+ 
+         new_running: list[Request] = []
+         outputs: dict[int, list[EngineCoreOutput]] = defaultdict(list)
+@@ -725,6 +735,10 @@ class Scheduler(SchedulerInterface):
+ 
+             req_index = model_runner_output.req_id_to_index[req_id]
+             generated_token_ids = sampled_token_ids[req_index]
++            if isinstance(req_index, int):
++                generated_last_hidden = [last_hidden[req_index]]
++            else:
++                generated_last_hidden = [last_hidden[i] for i in req_index]
+ 
+             scheduled_spec_token_ids = (
+                 scheduler_output.scheduled_spec_decode_tokens.get(req_id))
+@@ -816,6 +830,7 @@ class Scheduler(SchedulerInterface):
+                         events=request.take_events(),
+                         kv_transfer_params=kv_transfer_params,
+                         num_cached_tokens=request.num_cached_tokens,
++                        last_hidden=generated_last_hidden,
+                     ))
+ 
+             else:
+diff --git a/v1/engine/__init__.py b/v1/engine/__init__.py
+index 59463f1..0405120 100644
+--- a/v1/engine/__init__.py
++++ b/v1/engine/__init__.py
+@@ -14,6 +14,7 @@ from vllm.multimodal.inputs import PlaceholderRange
+ from vllm.sampling_params import SamplingParams
+ from vllm.v1.metrics.stats import SchedulerStats
+ from vllm.v1.outputs import LogprobsLists, LogprobsTensors
++import torch
+ 
+ # These are possible values of RequestOutput.finish_reason,
+ # so form part of the external API.
+@@ -111,6 +112,7 @@ class EngineCoreOutput(
+ 
+     # The number of tokens with prefix cache hits.
+     num_cached_tokens: int = 0
++    last_hidden: Optional[list[torch.Tensor]] = None
+ 
+     @property
+     def finished(self) -> bool:
+diff --git a/v1/engine/detokenizer.py b/v1/engine/detokenizer.py
+index c6fe2d3..738a0d7 100644
+--- a/v1/engine/detokenizer.py
++++ b/v1/engine/detokenizer.py
+@@ -15,6 +15,8 @@ from vllm.transformers_utils.detokenizer_utils import (
+     AnyTokenizer, convert_prompt_ids_to_tokens, detokenize_incrementally)
+ from vllm.v1.engine import EngineCoreRequest
+ 
++import torch
++
+ logger = init_logger(__name__)
+ 
+ 
+@@ -22,14 +24,20 @@ class IncrementalDetokenizer:
+ 
+     def __init__(self):
+         self.token_ids: list[int] = []
++        self.last_hiddens: list[torch.Tensor] = []
+ 
+     @property
+     def output_token_ids(self) -> list[int]:
+         return self.token_ids
++    
++    @property
++    def output_token_hiddens(self) -> list[torch.Tensor]:
++        return self.last_hiddens
+ 
+     def update(self, new_token_ids: list[int],
+                stop_terminated: bool) -> Optional[str]:
+         self.token_ids.extend(new_token_ids)
++        # self.last_hiddens.extend(last_hidden)
+         return None
+ 
+     def get_next_output_text(self, finished: bool, delta: bool) -> str:
+@@ -77,7 +85,7 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
+         # Generation data
+         self.output_text = ""
+ 
+-    def update(self, new_token_ids: list[int],
++    def update(self, new_token_ids: list[int], new_last_hidden: list[torch.Tensor],
+                stop_terminated: bool) -> Optional[str]:
+         """
+         Update RequestState for the request_id by:
+@@ -95,21 +103,28 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
+             # based on include_stop_str_in_output parameter.
+             skipped_stop_token_id = new_token_ids[-1]
+             new_token_ids = new_token_ids[:-1]
++            skipped_stop_last_hidden = new_last_hidden[-1]
++            new_last_hidden = new_last_hidden[:-1]
++            
+         else:
+             skipped_stop_token_id = None
++            skipped_stop_last_hidden = None
+ 
+         # 1) Detokenize the new token ids incrementally.
+         # TODO(woosuk): This method becomes very inefficient when the number of
+         # new_token_ids is more than 1. We need to optimize this.
+         offset_before = len(self.output_text)
+-        for new_token_id in new_token_ids:
++        for idx, new_token_id in enumerate(new_token_ids):
+             self.token_ids.append(new_token_id)
+             self.output_text += self.decode_next(new_token_id)
++            self.last_hiddens.append(new_last_hidden[idx])
++
+ 
+         if stop_terminated:
+             if skipped_stop_token_id is not None:
+                 # Cleanup after skipping detokenization.
+                 self.token_ids.append(skipped_stop_token_id)
++                self.last_hiddens.append(skipped_stop_last_hidden)
+             # Stop token triggered; skip stop string check.
+             return None
+ 
+diff --git a/v1/engine/output_processor.py b/v1/engine/output_processor.py
+index 1dcfbab..980bbf3 100644
+--- a/v1/engine/output_processor.py
++++ b/v1/engine/output_processor.py
+@@ -17,6 +17,7 @@ from vllm.v1.engine.parallel_sampling import ParentRequest
+ from vllm.v1.metrics.stats import (IterationStats, LoRARequestStates,
+                                    RequestStateStats)
+ 
++import torch
+ 
+ class RequestOutputCollector:
+     """
+@@ -145,6 +146,7 @@ class RequestState:
+     def make_request_output(
+         self,
+         new_token_ids: list[int],
++        token_hiddens: list[torch.Tensor],
+         finish_reason: Optional[FinishReason],
+         stop_reason: Union[int, str, None],
+         kv_transfer_params: Optional[dict[str, Any]] = None,
+@@ -159,7 +161,7 @@ class RequestState:
+             return None
+ 
+         completion_output = self._new_completion_output(
+-            new_token_ids, finish_reason, stop_reason)
++            new_token_ids, token_hiddens, finish_reason, stop_reason)
+ 
+         request_id = self.request_id
+         if self.parent_req is None:
+@@ -202,6 +204,7 @@ class RequestState:
+     def _new_completion_output(
+         self,
+         token_ids: list[int],
++        token_hiddens: list[torch.Tensor],
+         finish_reason: Optional[FinishReason],
+         stop_reason: Union[int, str, None],
+     ) -> CompletionOutput:
+@@ -213,18 +216,23 @@ class RequestState:
+         text = self.detokenizer.get_next_output_text(finished, delta)
+         if not delta:
+             token_ids = self.detokenizer.output_token_ids
++            token_hiddens = self.detokenizer.output_token_hiddens
+ 
+         # Prepare logprobs, based on delta mode
+         logprobs = self.logprobs_processor.logprobs
+         if delta and logprobs:
+             logprobs = logprobs[-len(token_ids):]
+ 
++        if not len(token_hiddens) == len(token_ids):
++            raise ("vllm hidden修改后出错，hidden与token长度没有对齐")
++        
+         return CompletionOutput(
+             index=self.request_index,
+             text=text,
+             token_ids=token_ids,
+             logprobs=logprobs,
+             cumulative_logprob=self.logprobs_processor.cumulative_logprob,
++            token_hiddens=token_hiddens,
+             finish_reason=str(finish_reason) if finished else None,
+             stop_reason=stop_reason if finished else None)
+ 
+@@ -346,10 +354,19 @@ class OutputProcessor:
+             kv_transfer_params = engine_core_output.kv_transfer_params
+             num_cached_tokens = engine_core_output.num_cached_tokens
+             req_state.is_prefilling = False
++            last_hidden = engine_core_output.last_hidden
++
++            if (last_hidden is None and len(new_token_ids) != 0) or \
++                (last_hidden is not None and len(last_hidden) != len(new_token_ids)):
++                raise RuntimeError(
++                    f"[vLLM Modified Error] "
++                    f"len(last_hidden)={'None' if last_hidden is None else len(last_hidden)} != "
++                    f"len(sampled_token_ids)={len(new_token_ids)}"
++                )
+ 
+             # 2) Detokenize the token ids into text and perform stop checks.
+             stop_string = req_state.detokenizer.update(
+-                new_token_ids, finish_reason == FinishReason.STOP)
++                new_token_ids, last_hidden, finish_reason == FinishReason.STOP)
+             if stop_string:
+                 finish_reason = FinishReason.STOP
+                 stop_reason = stop_string
+@@ -359,7 +376,7 @@ class OutputProcessor:
+ 
+             # 4) Create and handle RequestOutput objects.
+             if request_output := req_state.make_request_output(
+-                    new_token_ids, finish_reason, stop_reason,
++                    new_token_ids, last_hidden, finish_reason, stop_reason,
+                     kv_transfer_params, num_cached_tokens):
+                 if req_state.queue is not None:
+                     # AsyncLLM: put into queue for handling by generate().
+diff --git a/v1/outputs.py b/v1/outputs.py
+index 17a299d..25feaac 100644
+--- a/v1/outputs.py
++++ b/v1/outputs.py
+@@ -105,6 +105,8 @@ class ModelRunnerOutput:
+     finished_sending: Optional[set[str]] = None
+     finished_recving: Optional[set[str]] = None
+ 
++    last_hidden: Optional[list[torch.Tensor]] = None
++
+ 
+ EMPTY_MODEL_RUNNER_OUTPUT = ModelRunnerOutput(req_ids=[],
+                                               req_id_to_index={},
+diff --git a/v1/worker/gpu_model_runner.py b/v1/worker/gpu_model_runner.py
+index b1bc727..0f82166 100644
+--- a/v1/worker/gpu_model_runner.py
++++ b/v1/worker/gpu_model_runner.py
+@@ -1496,6 +1496,13 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+         if has_kv_transfer_group():
+             get_kv_transfer_group().clear_connector_metadata()
+ 
++        if len(valid_sampled_token_ids) != sample_hidden_states.size(0):
++            raise RuntimeError(
++                f"[vLLM Modified Error] "
++                f"len(last_hidden)={sample_hidden_states.size(0)} != "
++                f"len(valid_sampled_token_ids)={len(valid_sampled_token_ids)}"
++            )
++        
+         return ModelRunnerOutput(
+             req_ids=self.input_batch.req_ids,
+             req_id_to_index=self.input_batch.req_id_to_index,
+@@ -1505,6 +1512,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
+             prompt_logprobs_dict=prompt_logprobs_dict,
+             finished_sending=finished_sending,
+             finished_recving=finished_recving,
++            last_hidden=[t.cpu() for t in sample_hidden_states.detach().unbind(dim=0)],
+         )
+ 
+     def kv_connector_no_forward(
+diff --git a/worker/worker.py b/worker/worker.py
+index 531a70f..9a92863 100644
+--- a/worker/worker.py
++++ b/worker/worker.py
+@@ -68,20 +68,16 @@ class Worker(LocalOrDistributedWorkerBase):
+         # mlp_speculator
+         speculative_config = self.speculative_config
+         model_config = self.model_config
+-
+-        # speculative_args = {} if speculative_config is None \
+-        #     or (speculative_config.draft_model_config.hf_config.model_type ==
+-        #         model_config.hf_config.model_type) \
+-        #     or (speculative_config.draft_model_config.hf_config.model_type
+-        #         not in ("medusa",
+-        #                 "mlp_speculator",
+-        #                 "eagle",
+-        #                 "deepseek_mtp",
+-        #                  "mimo_mtp")) \
+-        #             else {"return_hidden_states": True}
+-
+-        speculative_args = {"return_hidden_states": True}  # 强制开启
+-
++        speculative_args = {} if speculative_config is None \
++            or (speculative_config.draft_model_config.hf_config.model_type ==
++                model_config.hf_config.model_type) \
++            or (speculative_config.draft_model_config.hf_config.model_type
++                not in ("medusa",
++                        "mlp_speculator",
++                        "eagle",
++                        "deepseek_mtp",
++                         "mimo_mtp")) \
++                    else {"return_hidden_states": True}
+ 
+         ModelRunnerClass: Type[GPUModelRunnerBase] = ModelRunner
+         if model_config.runner_type == "pooling":

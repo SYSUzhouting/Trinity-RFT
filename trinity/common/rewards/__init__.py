@@ -22,4 +22,5 @@ __all__ = [
     "MathRewardFn",
     "MathBoxedRewardFn",
     "MathDAPORewardFn",
+    "APIRewardFn",
 ]

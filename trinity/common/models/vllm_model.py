@@ -126,13 +126,20 @@ class vLLMRolloutModel(InferenceModel):
                 chat_template=self.chat_template,
             )
         else:
-            prompt = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                chat_template=self.chat_template,
-                enable_thinking=self.enable_thinking,
-            )
+            if 'Qwen' in self.tokenizer.name_or_path:
+                prompt = self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            else:
+                prompt = self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    chat_template=self.chat_template,
+                    enable_thinking=self.enable_thinking,
+                )
         return await self.generate(prompt=prompt, **kwargs)
 
     async def generate(self, prompt: str, **kwargs) -> Sequence[Experience]:
@@ -173,6 +180,7 @@ class vLLMRolloutModel(InferenceModel):
                 prompt_length=len(output.prompt_token_ids),
                 prompt_text=self.tokenizer.decode(output.prompt_token_ids),
                 response_text=output.outputs[i].text,
+                policy_last_tokens_hidden=[output.outputs[i].token_hiddens[-1]]
             )
             for i in range(len(output.outputs))
         ]
@@ -305,10 +313,17 @@ class vLLMRolloutModel(InferenceModel):
     async def _generate_internal(self, prompt: Any, **kwargs) -> Any:
         # Send the request to the LLM engine.
         self.request_id += 1
+
+        stop_token_ids = [151645, 151643]  # for Qwen
+
+        sampling_params = self._create_sampling_params(**kwargs)
+
+        sampling_params.stop_token_ids = stop_token_ids
+
         stream = self.async_llm.generate(
             request_id=str(self.request_id),
             prompt=prompt,
-            sampling_params=self._create_sampling_params(**kwargs),
+            sampling_params=sampling_params,
         )
 
         # Consume the stream until the request is finished.

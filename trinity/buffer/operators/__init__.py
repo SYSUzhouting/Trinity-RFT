@@ -5,6 +5,7 @@ from trinity.buffer.operators.experience_operator import (
 )
 from trinity.buffer.operators.filters.reward_filter import RewardFilter, RewardSTDFilter
 from trinity.buffer.operators.mappers.reward_shaping_mapper import RewardShapingMapper
+from trinity.buffer.operators.filters.outlier_reward_filter import OutlierRewardFilter
 
 __all__ = [
     "ExperienceOperator",
@@ -13,4 +14,5 @@ __all__ = [
     "RewardSTDFilter",
     "RewardShapingMapper",
     "DataJuicerOperator",
+    "OutlierRewardFilter",
 ]

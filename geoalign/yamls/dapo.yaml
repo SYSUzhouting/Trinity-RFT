@@ -1,0 +1,140 @@
+project: GeoAlgn_Math_DAPO
+name: run-1
+checkpoint_root_dir: ./ckpts/1.7B-math-grpo
+mode: explore
+algorithm:
+  algorithm_type: grpo
+  repeat_times: 16
+
+model:
+  model_path: Qwen3-1.7B-Instruct
+  max_response_tokens: 8192
+  max_model_len: 16384
+
+cluster:
+  node_num: 1
+  gpu_per_node: 8
+
+buffer:
+  total_epochs: 1
+  batch_size: 96
+  explorer_input:
+    taskset:
+      name: train-dapo-2
+      storage_type: file
+      path: ./math/train/dapo
+      split: 'train'
+      format:
+        prompt_key: 'problem'
+        response_key: 'solution'
+      rollout_args:
+        temperature: 1.0
+    eval_tasksets:
+    - name: "eval-aime25"
+      path: "./math/eval/hf/aime25"
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    - name: "eval-amc23"
+      path: "./math/eval/hf/amc23" 
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    - name: "eval-minerva" 
+      path: "./math/eval/hf/minerva" 
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    - name: "eval-math500" 
+      path: "./math/eval/hf/math500" 
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    - name: "eval-gsm8k" 
+      path: "./math/eval/hf/gsm8k" 
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    - name: "eval-olympiadbench" 
+      path: "./math/eval/hf/olympiadbench" 
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    - name: "eval-aime24" 
+      path: "./math/eval/hf/aime24" 
+      split: "validation" 
+      format:
+        prompt_key: 'question'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    default_workflow_type: math_boxed_workflow
+    default_reward_fn_type: math_boxed_reward
+  trainer_input:
+    experience_buffer:
+      name: math_buffer
+      storage_type: queue
+      path: 'sqlite:///run_formal/db/1.5B-math-grpo/ref-run-1.db'
+explorer:
+  eval_interval: 1000
+  runner_per_model: 32
+  rollout_model:
+    engine_num: 8
+    tensor_parallel_size: 1
+    enable_prefix_caching: false
+    enforce_eager: true
+    dtype: bfloat16
+    seed: 42
+synchronizer:
+  sync_method: 'nccl'
+  sync_interval: 1
+  sync_timeout: 1200
+trainer:
+  trainer_type: 'verl'
+  save_interval: 600
+  trainer_config:
+    actor_rollout_ref:
+      model:
+        use_remove_padding: true
+      actor:
+        use_dynamic_bsz: true
+        ppo_max_token_len_per_gpu: 16384
+        ulysses_sequence_parallel_size: 1
+        optim:
+          lr: 1e-6
+      ref:
+        log_prob_use_dynamic_bsz: ${trainer.trainer_config.actor_rollout_ref.actor.use_dynamic_bsz}
+        log_prob_max_token_len_per_gpu: ${trainer.trainer_config.actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+        ulysses_sequence_parallel_size: ${trainer.trainer_config.actor_rollout_ref.actor.ulysses_sequence_parallel_size}
+
+data_processor:
+  experience_pipeline:
+    operators:
+      - name: "outlier_reward_filter"
+        args:
+          input_hidden_state_dim: 2048
+          output_hidden_dim: 512
+          rollout_num: ${algorithm.repeat_times}
+          outlier_rank_ratio: 0.2
+          peak_pdf_alpha: 0.05
+          reward_reshape_type: max_random
+          subprocess_dir: Trinity-RFT/trinity/buffer/operators/filters/outlier_reward_filter_train_subprocess.py
+          classifier_model_save_path: ./preference_classifier_ckpt

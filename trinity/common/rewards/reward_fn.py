@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Base Reward Function Class."""
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
 
 from trinity.common.experience import Experience
 from trinity.common.rewards.utils import to_rm_gallery_messages
@@ -101,3 +101,57 @@ class RMGalleryFn(RewardFn):
             reward_dict["reward"] = reward_obj.score
 
         return reward_dict
+
+
+import requests,re
+
+@REWARD_FUNCTIONS.register_module("api_reward")
+class APIRewardFn(RewardFn):
+    """A reward function that rewards for math task."""
+    def __init__(
+        self,
+    ) -> None:
+        self.API_URL = 'http://127.0.0.1:6007/score'
+
+    def __call__(  # type: ignore
+        self,
+        response: str,
+        prompt: Optional[List[Dict[str, str]]] = None,
+        truth: Optional[List[Dict[str, str]]] = None,
+    ) -> Union[float, dict]:
+        
+        complete_conv = []
+        clean_response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)
+        complete_conv = prompt + [{'role': 'assistant', 'content': clean_response}]
+
+        if "['$_['$_['$_['$_['$_['$_['$_['$_['$_['$_['$_['$_['$_['$_['$_" in response:
+            reward = -5
+            return reward
+        
+        reward, hidden_state = self.API_call(complete_conv)
+
+        return reward, hidden_state
+    
+    def API_call(self,chat_data):
+        payload = {
+            "chat_history": chat_data
+        }
+
+        try:
+            response = requests.post(
+                self.API_URL, 
+                json=payload, 
+                timeout=5
+            )
+            
+            response.raise_for_status() 
+            
+            result = response.json()
+            
+            if result.get("status") == "success":
+                return result.get('score'), result.get('hidden_state')
+            else:
+                return -100
+
+        except requests.exceptions.RequestException as e:
+            return -100

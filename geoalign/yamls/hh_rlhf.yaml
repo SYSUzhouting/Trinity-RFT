@@ -1,0 +1,95 @@
+project: GeoAlgn_HH_RLHF
+name: run-1
+checkpoint_root_dir:  ./ckpts/Qwen3-1.7B-Base-SFT
+algorithm:
+  algorithm_type: grpo
+  repeat_times: 8
+
+model:
+  model_path:  Qwen/Qwen3-1.7B-Base/SFT  # SFT Qwen Model
+  max_prompt_tokens: 512
+  max_response_tokens: 1024
+
+cluster:
+  node_num: 1
+  gpu_per_node: 6
+
+buffer:
+  total_epochs: 2
+  batch_size: 96
+  explorer_input:
+    taskset:
+      name: hh-helpful
+      storage_type: file
+      path: './datasets/Anthropic_hh-rlhf/hh-rlfh-rlfh/train.parquet'  # 数据结构需要预先重构一下，我们提供了所需的数据结构的案例在 /home/daoyuan_dj/GeoAlign-fork/Trinity-RFT/geoalign/hh-rlhf-data-example 下
+      subset_name: 'default'
+      split: 'train'
+      format:
+        prompt_key: 'prompt'
+        response_key: 'answer'
+      rollout_args:
+        temperature: 1.0
+    eval_tasksets:
+    - name: hh—helpful-eval
+      storage_type: file
+      path: './datasets/Anthropic_hh-rlhf/hh-rlfh-rlfh/eval'
+      subset_name: 'default'
+      split: 'test'
+      format:
+        prompt_key: 'prompt'
+        response_key: 'answer'
+    default_workflow_type: 'dialogue_api_workflow'
+    default_reward_fn_type: 'api_reward'
+  trainer_input:
+    experience_buffer:
+      name: HH-RLHF
+      storage_type: queue
+      path: 'sqlite:///run_formal/db/1.7B-hh-rlhf-grpo/ref-run-1.db'
+
+explorer:
+  eval_interval: 8
+  runner_num: 32
+  rollout_model:
+    engine_num: 4
+    enable_thinking: false
+    tensor_parallel_size: 1
+    enable_prefix_caching: false
+    enforce_eager: true
+    dtype: bfloat16
+    seed: 42
+trainer:
+  trainer_type: 'verl'
+  save_interval: 100
+  trainer_config:
+    actor_rollout_ref:
+      model:
+        use_remove_padding: true
+      actor:
+        use_dynamic_bsz: true
+        ppo_max_token_len_per_gpu: 16384
+        ulysses_sequence_parallel_size: 1
+        optim:
+          lr: 1e-5
+      ref:
+        log_prob_use_dynamic_bsz: ${trainer.trainer_config.actor_rollout_ref.actor.use_dynamic_bsz}
+        log_prob_max_token_len_per_gpu: ${trainer.trainer_config.actor_rollout_ref.actor.ppo_max_token_len_per_gpu}
+        ulysses_sequence_parallel_size: ${trainer.trainer_config.actor_rollout_ref.actor.ulysses_sequence_parallel_size} 
+synchronizer:
+  sync_method: nccl
+  sync_style: dynamic_by_explorer
+  sync_interval: 1
+  sync_timeout: 1200
+
+data_processor:
+  experience_pipeline:
+    operators:
+      - name: "outlier_reward_filter"
+        args:
+          input_hidden_state_dim: 2048
+          output_hidden_dim: 512
+          rollout_num: ${algorithm.repeat_times}
+          outlier_rank_ratio: 0.2
+          peak_pdf_alpha: 0.12
+          reward_reshape_type: max_random
+          subprocess_dir: Trinity-RFT/trinity/buffer/operators/filters/outlier_reward_filter_train_subprocess.py
+          classifier_model_save_path: ./preference_classifier_ckpt

@@ -60,7 +60,7 @@ class AccuracyReward(RewardFn):
 
         # Reward 1 if the content is the same as the ground truth, 0 otherwise
         try:
-            reward = float(verify(answer_parsed, truth_parsed))
+            reward = float(verify(answer_parsed, truth_parsed,timeout_seconds=None))
         except Exception as e:
             self.logger.info(f"verify failed: {e}, answer: {answer_parsed}, gold: {truth_parsed}")
             reward = 0.0

@@ -14,7 +14,7 @@ def simple_answer_parser(response: str) -> str:
     if search_ans:
         response = search_ans.group(1)
 
-    return parse(response)
+    return parse(response, parsing_timeout=None)
 
 
 def find_boxed_answer(raw_answer, timeout=10):
