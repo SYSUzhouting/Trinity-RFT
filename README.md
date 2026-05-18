@@ -1,406 +1,141 @@
-[**中文主页**](https://github.com/modelscope/Trinity-RFT/blob/main/README_zh.md) | [**Tutorial**](https://modelscope.github.io/Trinity-RFT/) | [**FAQ**](./docs/sphinx_doc/source/tutorial/faq.md)
+# GeoAlign: Online Calibration via Latent Directional Consistency
 
-<div align="center">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01lvLpfw25Pl4ohGZnU_!!6000000007519-2-tps-1628-490.png" alt="Trinity-RFT" style="height: 120px;">
-</div>
+This repository contains the official implementation of the ICML 2026 paper **"GeoAlign: Geometric Rollout Curation for Robust LLM Reinforcement Learning"**.
 
+## 1. Environment Setup
 
+Our codebase is built upon Trinity-RFT. Please follow the steps below to set up the environment.
 
-<h2 align="center">Trinity-RFT: A General-Purpose and Unified Framework for Reinforcement Fine-Tuning of Large Language Models</h2>
+### 1.1. Basic Dependencies
 
-
-<div align="center">
-
-[![paper](http://img.shields.io/badge/cs.LG-2505.17826-B31B1B?logo=arxiv&logoColor=red)](https://arxiv.org/abs/2505.17826)
-[![doc](https://img.shields.io/badge/Docs-blue?logo=markdown)](https://modelscope.github.io/Trinity-RFT/)
-[![pypi](https://img.shields.io/pypi/v/trinity-rft?logo=pypi&color=026cad)](https://pypi.org/project/trinity-rft/)
-![license](https://img.shields.io/badge/license-Apache--2.0-000000.svg)
-
-</div>
-
-
-## 🚀 News
-
-* [2025-09] ✨ [[Release Notes](https://github.com/modelscope/Trinity-RFT/releases/tag/v0.3.0)] Trinity-RFT v0.3.0 released: enhanced Buffer, FSDP2 & Megatron support, multi-modal models, and new RL algorithms/examples.
-* [2025-08] 🎵 Introducing [CHORD](https://github.com/modelscope/Trinity-RFT/tree/main/examples/mix_chord): dynamic SFT + RL integration for advanced LLM fine-tuning ([paper](https://arxiv.org/pdf/2508.11408)).
-* [2025-08] [[Release Notes](https://github.com/modelscope/Trinity-RFT/releases/tag/v0.2.1)] Trinity-RFT v0.2.1 released.
-* [2025-07] [[Release Notes](https://github.com/modelscope/Trinity-RFT/releases/tag/v0.2.0)] Trinity-RFT v0.2.0 released.
-* [2025-07] Technical report (arXiv v2) updated with new features, examples, and experiments: [link](https://arxiv.org/abs/2505.17826).
-* [2025-06] [[Release Notes](https://github.com/modelscope/Trinity-RFT/releases/tag/v0.1.1)] Trinity-RFT v0.1.1 released.
-* [2025-05] [[Release Notes](https://github.com/modelscope/Trinity-RFT/releases/tag/v0.1.0)] Trinity-RFT v0.1.0 released, plus [technical report](https://arxiv.org/abs/2505.17826).
-* [2025-04] Trinity-RFT open sourced.
-
-
-## 💡 What is Trinity-RFT?
-
-Trinity-RFT is a flexible, general-purpose framework for reinforcement fine-tuning (RFT) of large language models (LLMs). It supports a wide range of applications and provides a unified platform for RL research in the [era of experience](https://storage.googleapis.com/deepmind-media/Era-of-Experience%20/The%20Era%20of%20Experience%20Paper.pdf).
-
-The RFT process is modularized into three core components:
-
-* **Explorer**: Handles agent-environment interaction
-* **Trainer**: Manages model training
-* **Buffer**: Manages data storage and processing
-
-
-<img src="https://img.alicdn.com/imgextra/i2/O1CN01H3UbpF1yP7E1OCLbi_!!6000000006570-2-tps-1334-638.png" alt="The high-level design of Trinity-RFT" width="800" />
-
-
-
-## ✨ Key Features
-
-* **Flexible RFT Modes:**
-  - Supports synchronous/asynchronous, on-policy/off-policy, and online/offline training. Rollout and training can run separately and scale independently across devices.
-
-  <img src="https://img.alicdn.com/imgextra/i3/O1CN01E7NskS1FFoTI9jlaQ_!!6000000000458-2-tps-1458-682.png" alt="RFT modes supported by Trinity-RFT" width="600" />
-
-* **Agent Framework Compatible Workflows:**
-  - Supports both concatenated and general multi-turn agentic workflows. Automatically collects training data from model API clients (e.g., OpenAI) and is compatible with agent frameworks like AgentScope.
-
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01z1i7kk1jlMEVa8ZHV_!!6000000004588-2-tps-1262-695.png" alt="Agentic workflows" width="600" />
-
-* **Powerful Data Pipelines:**
-  - Enables pipeline processing of rollout and experience data, supporting active management (prioritization, cleaning, augmentation) throughout the RFT lifecycle.
-
-  <img src="https://img.alicdn.com/imgextra/i2/O1CN01BfeHp61sXSlGjH7zQ_!!6000000005776-2-tps-1734-473.png" alt="Data pipeline design" width="600" />
-
-* **User-Friendly Design:**
-  - Modular, decoupled architecture for easy adoption and development. Rich graphical user interfaces enable low-code usage.
-
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01Ti0o4320RywoAuyhN_!!6000000006847-2-tps-3840-2134.png" alt="System architecture" width="600" />
-
-
-
-
-## 🛠️ What can I use Trinity-RFT for?
-
-* **Train agent applications with RL and minimal migration cost** [[Tutorial]](https://modelscope.github.io/Trinity-RFT/main/tutorial/trinity_programming_guide.html#workflows-for-rl-environment-developers)
-  - Implement agent-environment interaction logic in a single workflow class ([example1](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_multi_turn.html), [example2](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_step_wise.html)),
-  - Or import workflows from agent frameworks like AgentScope ([example](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_react.html)).
-
-* **Rapid RL algorithm design and validation** [[Tutorial]](https://modelscope.github.io/Trinity-RFT/main/tutorial/trinity_programming_guide.html#algorithms-for-rl-algorithm-developers)
-  - Develop custom RL algorithms (loss design, sampling strategy, etc.) in compact, plug-and-play classes ([example](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_mix_algo.html)).
-
-* **Custom datasets and data pipelines for RFT** [[Tutorial]](https://modelscope.github.io/Trinity-RFT/main/tutorial/trinity_programming_guide.html#operators-for-data-developers)
-  - Design task-specific datasets and build data pipelines for cleaning, augmentation, and human-in-the-loop scenarios ([example](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_data_functionalities.html)).
-
----
-
-## Table of contents
-
-
-- [Getting started](#getting-started)
-  - [Step 1: installation](#step-1-installation)
-  - [Step 2: prepare dataset and model](#step-2-prepare-dataset-and-model)
-  - [Step 3: configurations](#step-3-configurations)
-  - [Step 4: run the RFT process](#step-4-run-the-rft-process)
-- [Further tutorials](#further-tutorials)
-- [Upcoming features](#upcoming-features)
-- [Contribution guide](#contribution-guide)
-- [Acknowledgements](#acknowledgements)
-- [Citation](#citation)
-
-
-
-## Getting started
-
-
-> [!NOTE]
-> This project is currently under active development. Comments and suggestions are welcome!
-
-
-### Step 1: installation
-
-#### Prerequisites
-
-Before installing, make sure your system meets the following requirements:
-
-- **Python**: version 3.10 to 3.12 (inclusive)
-- **CUDA**: version 12.4 to 12.8 (inclusive)
-- **GPUs**: at least 2 GPUs
-
-
-#### Option A: Install from Source (Recommended)
-
-This method gives you full control and is best if you plan to customize or contribute to the project.
-
-##### 1. Clone the Repository
+Navigate to the Trinity-RFT directory and install the package in editable mode along with the required dependencies:
 
 ```bash
-git clone https://github.com/modelscope/Trinity-RFT
 cd Trinity-RFT
-```
-
-##### 2. Set Up a Virtual Environment
-
-Choose one of the following options to create an isolated environment:
-
-###### Using Conda
-```bash
-conda create -n trinity python=3.10
-conda activate trinity
-```
-
-###### Using venv
-```bash
-python3.10 -m venv .venv
-source .venv/bin/activate
-```
-
-##### 3. Install the Package
-
-Install in editable mode so you can make changes without reinstalling:
-
-```bash
 pip install -e ".[dev]"
-```
-
-##### 4. Install Flash Attention
-
-Flash Attention boosts training speed. It takes a few minutes to compile — please be patient!
-
-```bash
 pip install flash-attn==2.8.1
 ```
 
-If you encounter issues during installation, try this alternative:
+### 1.2. vLLM Modification
+
+**GeoAlign** requires access to the **last-layer hidden state** of the generated sequences to compute directional consistency. The standard `vllm` library does not expose these hidden states during generation. To enable this efficient "one-pass" extraction, we have modified the `vllm` library.
+
+1. **Version Requirement:** We use `vllm==0.9.1`.
+2. **Apply Changes:** We provide a diff file containing the necessary modifications to the vLLM source code.
+   * **Diff Location:** `geoalign/hidden_vllm_0.9.1/changes.diff`
+   * Run the following commands to apply the patch:
 
 ```bash
-pip install flash-attn==2.8.1 --no-build-isolation
+# Activate your environment
+conda activate <your_trinity_env>
+
+# Apply the patch
+VLLM_PATH=$(python -c "import importlib.util; print(importlib.util.find_spec('vllm').submodule_search_locations[0])")
+patch -p1 -d $VLLM_PATH < geoalign/hidden_vllm_0.9.1/changes.diff
 ```
 
-
-##### ⚡ Fast Alternative: Use `uv` (Optional)
-
-If you'd like a faster installation, try [`uv`](https://github.com/astral-sh/uv), a modern Python package installer:
+3. **Verification:** After applying the changes, run the provided test script to ensure hidden states are being returned correctly:
 
 ```bash
-uv venv
-source .venv/bin/activate
-
-uv pip install -e ".[dev]"
-uv pip install flash-attn==2.8.1 --no-build-isolation
+python geoalign/hidden_vllm_0.9.1/test_hidden_vllm.py
 ```
 
-#### Option B: Install via pip (Quick Start)
+---
 
-If you just want to use the package without modifying the code:
+## 2. Usage
+
+GeoAlign is implemented as an **Experience Buffer operator** within the Trinity-RFT framework. The core logic is located at:
+`Trinity-RFT/trinity/buffer/operators/filters/outlier_reward_filter.py`.
+
+### 2.1. Architecture: Decoupled Projector Training
+
+The Trinity-RFT framework locks GPU resources during the main RL training loop. To allow the GeoAlign projector (a lightweight MLP) to train effectively without resource conflicts or blocking the main process, we decouple the projector training using a **Watcher Process**.
+
+* **Main Process (Trinity):** Generates rollouts, saves preference data to a specified path, and signals a request for projector training.
+* **Watcher Process:** Runs in the background. It monitors for training signals, loads the data, trains the projector on the GPU, saves the updated model, and signals completion back to Trinity.
+
+### 2.2. Running the Code
+
+**Step 0: Prepare the Reward Model API (HH-RLHF only)**
+
+This step is only required for reinforcement learning on the HH-RLHF dataset. Since reward computation requires calling a large external reward model (ArmoRM-Llama3-8B-v0.1 in our experimental setup), we first deploy it as an API service so that Trinity-RFT can query it during training. A deployment script is provided:
 
 ```bash
-pip install trinity-rft==0.3.0
-pip install flash-attn==2.8.1  # Install Flash Attention separately
-
-# Use uv to install trinity-rft
-# uv pip install trinity-rft==0.3.0
-# uv pip install flash-attn==2.8.1
+cd Trinity-RFT/geoalign/RM_API_construct
+CUDA_VISIBLE_DEVICES=7 uvicorn rm_api_ArmoRM:app --host 0.0.0.0 --port 6007 --workers 1
 ```
 
-#### Option C: Use Docker
-
-We provide a Docker setup for hassle-free environment configuration.
+To verify the deployment, run:
 
 ```bash
-git clone https://github.com/modelscope/Trinity-RFT
-cd Trinity-RFT
-
-## Build the Docker image
-## Tip: You can modify the Dockerfile to add mirrors or set API keys
-docker build -f scripts/docker/Dockerfile -t trinity-rft:latest .
-
-## Run the container
-docker run -it \
-  --gpus all \
-  --shm-size="64g" \
-  --rm \
-  -v $PWD:/workspace \
-  -v <path_to_your_data_and_checkpoints>:/data \
-  trinity-rft:latest
+python geoalign/RM_API_construct/request_try.py
 ```
 
-💡 **Note**: Replace `<path_to_your_data_and_checkpoints>` with the actual path on your machine where datasets and model checkpoints are stored.
+The API interface used during RL training is `class APIRewardFn` in `Trinity-RFT/trinity/common/rewards/reward_fn.py`. Please ensure that `self.API_URL = 'http://127.0.0.1:6007/score'` points to a reachable endpoint before launching training.
 
-> If you'd like to integrate with **Megatron-LM**, check out our [example setup guide for Megatron](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_megatron.html).
+**Step 1: Start the Projector Watcher**
 
-### Step 2: prepare dataset and model
-
-
-Trinity-RFT supports most datasets and models from Huggingface and ModelScope.
-
-
-**Prepare the model** in the local directory `$MODEL_PATH/{model_name}`:
+Before launching the main training loop, you must start the watcher process. Ensure the `inter_data_path` variable in the script points to your desired directory for intermediate model checkpoints (e.g., `./preference_classifier_ckpt`).
 
 ```bash
-# Using Huggingface
-huggingface-cli download {model_name} --local-dir $MODEL_PATH/{model_name}
-
-# Using Modelscope
-modelscope download {model_name} --local_dir $MODEL_PATH/{model_name}
+cd ./Trinity-RFT
+python geoalign/train_watcher.py
 ```
 
-For more details about model downloading, see [Huggingface](https://huggingface.co/docs/huggingface_hub/main/en/guides/cli) or [ModelScope](https://modelscope.cn/docs/models/download).
+> **Note:** Keep this process running in the background or in a separate terminal window throughout the training.
 
+**Step 2: Launch the RL Training**
 
-
-**Prepare the dataset** in the local directory `$DATASET_PATH/{dataset_name}`:
+Once the watcher is active, start the Ray cluster and the Trinity training job.
 
 ```bash
-# Using Huggingface
-huggingface-cli download {dataset_name} --repo-type dataset --local-dir $DATASET_PATH/{dataset_name}
-
-# Using Modelscope
-modelscope download --dataset {dataset_name} --local_dir $DATASET_PATH/{dataset_name}
-```
-
-For more details about dataset downloading, see [Huggingface](https://huggingface.co/docs/huggingface_hub/main/en/guides/cli#download-a-dataset-or-a-space) or [ModelScope](https://modelscope.cn/docs/datasets/download).
-
-
-
-### Step 3: configurations
-
-
-Trinity-RFT provides a web interface for configuring your RFT process.
-
-> [!NOTE]
-> This is an experimental feature, and we will continue to improve it.
-
-
-To launch the web interface for minimal configurations, you can run
-
-```bash
-trinity studio --port 8080
-```
-
-Then you can configure your RFT process in the web page and generate a config file. You can save the config file for later use or run it directly as described in the following section.
-
-Advanced users can also edit the config file directly.
-We provide example config files in [`examples`](examples/).
-
-For complete GUI features, please refer to the monorepo for [Trinity-Studio](https://github.com/modelscope/Trinity-Studio).
-
-
-<details>
-
-<summary> Example: config manager GUI </summary>
-
-![config-manager](https://img.alicdn.com/imgextra/i1/O1CN01yhYrV01lGKchtywSH_!!6000000004791-2-tps-1480-844.png)
-
-
-</details>
-
-
-
-
-### Step 4: run the RFT process
-
-
-Start a ray cluster:
-
-```shell
-# On master node
 ray start --head
 
-# On worker nodes
-ray start --address=<master_address>
+# Example 1: For Mathematical Reasoning (DAPO dataset)
+trinity run --config yamls/dapo.yaml
+
+# Example 2: For HH-RLHF
+trinity run --config yamls/hh_rlhf.yaml
 ```
 
-(Optional) Log in to [wandb](https://docs.wandb.ai/quickstart/) for better monitoring:
+---
 
-```shell
-export WANDB_API_KEY=<your_api_key>
-wandb login
-```
+## 3. Configuration Guidelines
 
-For command-line users, run the RFT process:
+You will need to adjust the YAML configuration files (e.g., `yamls/dapo.yaml`) to match your local paths and specific model settings. The relevant parameters for GeoAlign are located under `data_processor -> experience_pipeline -> operators`.
 
-```shell
-trinity run --config <config_path>
-```
+### Parameter Explanation
 
-For example, below is the command for fine-tuning Qwen2.5-1.5B-Instruct on GSM8k with GRPO:
+Below is an example configuration for the `outlier_reward_filter` operator:
 
-```shell
-trinity run --config examples/grpo_gsm8k/gsm8k.yaml
-```
+```yaml
+data_processor:
+  experience_pipeline:
+    operators:
+      - name: "outlier_reward_filter"
+        args:
+          # Dimension of the policy's last hidden layer.
+          # This value corresponds to "hidden_size" in the model's config.json.
+          # Set to 2048 for Qwen3-1.7B; set to 2560 for Qwen3-4B.
+          input_hidden_state_dim: 2048
 
-For studio users, click "Run" in the web interface.
+          # Dimension of the projected latent space (d').
+          output_hidden_dim: 512
 
+          rollout_num: ${algorithm.repeat_times}
 
-## Further tutorials
+          # (Kappa) Upper bound fraction for potential outlier candidates.
+          outlier_rank_ratio: 0.2
 
-> [!NOTE]
-> For more tutorials, please refer to the [Trinity-RFT Documentation](https://modelscope.github.io/Trinity-RFT/).
+          # (Alpha) KDE sensitivity for detecting the anomaly score boundary.
+          peak_pdf_alpha: 0.05
 
+          reward_reshape_type: max_random  # Options: max_random / remove / replace_with_group_mean
 
-Tutorials for running different RFT modes:
+          # Path to the training script used by the watcher process.
+          subprocess_dir: Trinity-RFT/trinity/buffer/operators/filters/outlier_reward_filter_train_subprocess.py
 
-+ [Quick example: GRPO on GSM8k](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_reasoning_basic.html)
-+ [Off-policy RFT](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_reasoning_advanced.html)
-+ [Fully asynchronous RFT](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_async_mode.html)
-+ [Offline learning by DPO or SFT](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_dpo.html)
-
-
-Tutorials for adapting Trinity-RFT to multi-step agentic scenarios:
-
-+ [Concatenated multi-turn workflow](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_multi_turn.html)
-+ [General multi-step workflow](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_step_wise.html)
-+ [ReAct workflow with an agent framework](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_react.html)
-
-
-Tutorials for data-related functionalities:
-
-+ [Advanced data processing & human-in-the-loop](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_data_functionalities.html)
-
-
-Tutorials for RL algorithm development/research with Trinity-RFT:
-
-+ [RL algorithm development with Trinity-RFT](https://modelscope.github.io/Trinity-RFT/main/tutorial/example_mix_algo.html)
-
-
-Guidelines for full configurations:
-
-+ See [this document](https://modelscope.github.io/Trinity-RFT/main/tutorial/trinity_configs.html)
-
-
-Guidelines for developers and researchers:
-
-+ [Benchmark Toolkit for quick verification and experimentation](./benchmark/README.md)
-+ [Understand the coordination between explorer and trainer](https://modelscope.github.io/Trinity-RFT/main/tutorial/synchronizer.html)
-
-
-## Upcoming features
-
-A tentative roadmap: [#51](https://github.com/modelscope/Trinity-RFT/issues/51)
-
-
-## Contribution guide
-
-This project is currently under active development, and we welcome contributions from the community!
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed contribution guidelines.
-
-
-## Acknowledgements
-
-This project is built upon many excellent open-source projects, including:
-
-+ [verl](https://github.com/volcengine/verl) and [PyTorch's FSDP](https://pytorch.org/docs/stable/fsdp.html) for LLM training;
-+ [vLLM](https://github.com/vllm-project/vllm) for LLM inference;
-+ [Data-Juicer](https://github.com/modelscope/data-juicer?tab=readme-ov-file) for data processing pipelines;
-+ [AgentScope](https://github.com/modelscope/agentscope) for agentic workflow;
-+ [Ray](https://github.com/ray-project/ray) for distributed systems;
-+ we have also drawn inspirations from RL frameworks like [OpenRLHF](https://github.com/OpenRLHF/OpenRLHF), [TRL](https://github.com/huggingface/trl) and [ChatLearn](https://github.com/alibaba/ChatLearn);
-+ ......
-
-
-## Citation
-
-```bibtex
-@misc{trinity-rft,
-      title={Trinity-RFT: A General-Purpose and Unified Framework for Reinforcement Fine-Tuning of Large Language Models},
-      author={Xuchen Pan and Yanxi Chen and Yushuo Chen and Yuchang Sun and Daoyuan Chen and Wenhao Zhang and Yuexiang Xie and Yilun Huang and Yilei Zhang and Dawei Gao and Yaliang Li and Bolin Ding and Jingren Zhou},
-      year={2025},
-      eprint={2505.17826},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2505.17826},
-}
+          # Directory for intermediate checkpoints.
+          # MUST match the 'inter_data_path' defined in 'train_watcher.py'.
+          classifier_model_save_path: ./preference_classifier_ckpt
 ```
